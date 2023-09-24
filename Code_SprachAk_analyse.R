@@ -8,9 +8,13 @@ library(stats)
 library(dplyr)
 library(nnet)
 install.packages("glmnet")
+install.packages("corrplot")
+library(corrplot)
 library(Matrix)
 library(glmnet)
-
+library(stats)
+library(pROC)
+library(nnet)
 
 
 total <- read.csv("../FeaturesTotal__")
@@ -205,6 +209,7 @@ print(modell_glmnet)
 plot(modell_glmnet)
 
 
+
 best_lambda <- modell_glmnet$lambda.min
 coefs <- coef(modell_glmnet, s = best_lambda)
 print(coefs)
@@ -303,9 +308,477 @@ print(x_train)
 print(x_test)
 
 
+
+
+
 x_test <- as.matrix(test_data_selected[, -which(names(test_data_selected) == "LEI.STP")])
 y_test <- test_data_selected$LEI.STP
 
 predictions <- predict(modell_glmnet, newx = x_test, s = best_lambda, type = "class")
 
 confusion_matrix <- table(Predicted = predictions, Actual = y_test)
+print(confusion_matrix)
+
+print(sorted_features1)
+
+
+
+# Spaltennamen von x_test erhalten
+cols_to_keep <- colnames(x_test)
+
+# x_train auf die Merkmale von x_test reduzieren
+x_train_reduced <- x_train[, cols_to_keep]
+
+
+# Neu trainieren des glmnet-Modells mit den reduzierten Daten
+modell_glmnet_reduced <- cv.glmnet(x_train_reduced, y_train, family = "multinomial")
+
+# Den besten Lambda-Wert aus dem neu trainierten Modell holen
+best_lambda_reduced <- modell_glmnet_reduced$lambda.min
+
+# Vorhersagen mit dem neuen Modell und x_test treffen
+predictions_try <- predict(modell_glmnet_reduced, newx = x_test, s = best_lambda, type = "class")
+
+
+confusion_matrix <- table(predictions_try, y_test)
+print(confusion_matrix)
+
+
+
+
+
+#glmnet war nicht aussagekräftig bei Datensatz, deswegen folgend neu mit Kreuzvalidierung
+
+set.seed(123) # für Reproduzierbarkeit
+
+#Trainings und Testsätze
+train_index <- sample(1:nrow(LEI.mostAcc), 0.8*nrow(LEI.mostAcc))
+train_dataK <- LEI.mostAcc[train_index, ]
+test_dataK <- LEI.mostAcc[-train_index, ]
+
+
+#k-fold Validierung + glmnet 
+x_trainK <- as.matrix(train_dataK[, -which(names(train_dataK) == "LEI.STP")]) 
+y_trainK <- train_dataK$LEI.STP
+
+cv_fit <- cv.glmnet(x_trainK, y_trainK, family="multinomial", type.multinomial = "grouped", nfolds=10)
+best_lambda <- cv_fit$lambda.min
+
+
+
+#Modelltraining mit bester Lambda-Wert
+modell_glmnet <- glmnet(x_trainK, y_trainK, family="multinomial", type.multinomial = "grouped", lambda=best_lambda)
+
+
+#Modellbewertung
+x_testK <- as.matrix(test_dataK[, -which(names(test_dataK) == "LEI.STP")])
+y_testK <- test_dataK$LEI.STP
+
+predictions <- predict(modell_glmnet, newx = x_testK, s = best_lambda, type = "class")
+
+# Konfusionsmatrix
+confusion_matrix <- table(predictions, y_testK)
+print(confusion_matrix)
+
+
+str(coef(modell_glmnet))
+
+
+
+# Für Klasse NTR (Referenzklasse):
+coefs_NTR <- as.matrix(coef(modell_glmnet)[["2"]])
+print("Koeffizienten für Klasse NTR:")
+sorted_NTR<- coefs_df[order(-abs(coefs_df$Coefficient)), ]
+print(sorted_NTR)
+
+# Für Klasse GLE:
+coefs_GLE <- as.matrix(coef(modell_glmnet)[["1"]])
+print("Koeffizienten für Klasse GLE:")
+print(coefs_GLE)
+sorted_GLE<- coefs_df[order(-abs(coefs_df$Coefficient)), ]
+print(sorted_GLE)
+
+# Für Klasse LEI:
+coefs_LEI <- as.matrix(coef(modell_glmnet)[["3"]])
+print("Koeffizienten für Klasse LEI:")
+print(coefs_LEI)
+sorted_LEI<- coefs_df[order(-abs(coefs_df$Coefficient)), ]
+print(sorted_LEI)
+
+
+
+
+# Koeffizienten für jede Klasse extrahieren
+coefs_NTR <- as.matrix(coef(modell_glmnet)[["2"]])
+coefs_GLE <- as.matrix(coef(modell_glmnet)[["1"]])
+coefs_LEI <- as.matrix(coef(modell_glmnet)[["3"]])
+
+# Nur Koeffizienten behalten, die nicht null sind
+coefs_NTR <- coefs_NTR[coefs_NTR != 0, , drop = FALSE]
+coefs_GLE <- coefs_GLE[coefs_GLE != 0, , drop = FALSE]
+coefs_LEI <- coefs_LEI[coefs_LEI != 0, , drop = FALSE]
+
+# Alle Koeffizienten in eine gemeinsame Liste packen
+all_coefs <- list(NTR = coefs_NTR, GLE = coefs_GLE, LEI = coefs_LEI)
+
+# Die Liste ausgeben
+print(all_coefs)
+
+
+
+# Merkmalsnamen für jede Klasse extrahieren
+features_NTR <- rownames(coefs_NTR)
+features_GLE <- rownames(coefs_GLE)
+features_LEI <- rownames(coefs_LEI)
+
+# Alle Merkmale zusammenführen und Duplikate entfernen
+unique_features <- unique(c(features_NTR, features_GLE, features_LEI))
+
+# Die einzigartigen Merkmale ausgeben
+print(unique_features)
+df_unique_features <- data.frame(Features = unique_features)
+
+datatable(coefs_LEI, extensions = 'Buttons', options = list(
+  dom = 'Bfrtip',
+  buttons = c('copy', 'csv', 'excel', 'pdf', 'print')
+))
+
+
+plot(fit)
+plot(cv_fit)
+
+
+fit <- modell_glmnet
+class(fit)
+length(fit$lambda)
+is.unsorted(fit$lambda)
+
+
+
+# nochmal, weil der plot nicht angezeigt werden konnte
+
+fit <- glmnet(x_trainK, y_trainK, family = "multinomial", type.multinomial = "grouped")
+plot(fit, xvar="lambda", label=TRUE)
+cv_fit <- cv.glmnet(x_trainK, y_trainK, family = "multinomial", type.multinomial = "grouped")
+plot(cv_fit)
+
+# optimales lambda 
+best_lambda <- cv_fit$lambda.min
+
+
+#neu trainieren mit optimalem lambda
+
+modell_optimal <- glmnet(x = x_trainK, y = y_trainK, family = "multinomial", lambda = best_lambda)
+predictions_optimal <- predict(modell_optimal, newx = x_testK, s = best_lambda, type = "class")
+
+confusion_matrix_optimal <- table(predictions_optimal, y_testK)
+print(confusion_matrix_optimal)
+
+print(confusion_matrix)
+test_data_opt <- test_dataK[, c("LEI.STP", unique_features)]
+
+
+# Leere Strings aus dem Vektor entfernen
+unique_features <- unique_features[unique_features != ""]
+
+# Testen, ob alle Features in test_dataK vorhanden sind
+if (all(unique_features %in% names(test_dataK))) {
+  test_data_opt <- test_dataK[, c("LEI.STP", unique_features)]
+} else {
+  missing_features <- unique_features[!unique_features %in% names(test_dataK)]
+  print(paste("Folgende Features fehlen in test_dataK:", paste(missing_features, collapse = ", ")))
+}
+
+
+print(coefs_GLE)
+print(coefs_LEI)
+print(coefs_NTR)
+
+
+# Spaltennamen von x_test erhalten
+cols_to_keep <- colnames(x_testK)
+
+# x_train auf die Merkmale von x_test reduzieren
+x_train_opt <- x_trainK[, cols_to_keep]
+modell_optimal <- glmnet(x = x_trainK, y = y_trainK, family = "multinomial", lambda = best_lambda)
+predictions_optimal <- predict(modell_optimal, newx = x_testK, s = best_lambda, type = "class")
+
+confusion_matrix_optimal_red <- table(predictions_optimal, y_testK)
+print(confusion_matrix_optimal_red)
+
+
+
+library(dplyr)
+
+# Nehmen wir an, unique_features ist ein Charakter-Vektor mit den Feature-Namen
+selected_features_opt <- c(unique_features, "LEI.STP")
+
+# Extrahieren der gewählten Features aus den Trainings- und Testdaten
+train_data_opt <- train_dataK %>%
+  select(all_of(selected_features_opt))
+
+test_data_opt <- test_dataK %>%
+  select(all_of(selected_features_opt))
+
+
+#EVALUIEREN
+predictions_try <- as.factor(predictions_try)
+levels(predictions_try) <- levels(y_test)
+
+cm1 <- confusionMatrix(predictions_try, y_test)
+print(cm1)
+
+
+# Zugriff auf Statistiken:
+cm$byClass
+
+
+#MLR
+modell_mlr <- multinom(LEI.STP ~ ., data=train_data_opt)
+predictions_mlr <- predict(modell_mlr, newdata = test_data_opt)
+
+
+cm_mlr <- confusionMatrix(predictions_mlr, test_data_opt$LEI.STP)
+print(cm_mlr)
+
+summary(modell_mlr)
+
+plot(modell_mlr)
+
+
+library(ggplot2)
+
+# Extrahieren der Koeffizienten und Umwandeln in ein Dataframe
+coefs_mlr <- as.data.frame(coef(modell_mlr))
+coefs_mlr$feature <- rownames(coefs_mlr)
+
+# Schmelzen des Dataframes für ggplot
+library(reshape2)
+coefs_mlr_melted <- melt(coefs_mlr, id.vars="feature")
+
+# Plot MLR
+ggplot(coefs_mlr_melted, aes(x=feature, y=value, fill=variable)) + 
+  geom_bar(stat="identity", position="dodge") +
+  coord_flip() +
+  labs(y="Coefficient Value", x="", fill="Class") +
+  theme_light() +
+  theme(legend.position="bottom")
+
+
+
+library(ggplot2)
+library(dplyr)
+
+# Überprüfen Sie die Struktur der Daten
+str(train_dataK)
+
+# Grundlegende Statistiken
+summary(train_dataK)
+
+# Überprüfen Sie das Klassenungleichgewicht
+table(train_dataK$LEI.STP)
+
+# Visualisierung des Klassenungleichgewichts
+ggplot(train_dataK, aes(x = LEI.STP)) + 
+  geom_bar(fill = "skyblue") + 
+  labs(title = "Distribution of Classes", x = "Class", y = "Count")
+
+
+ggplot(train_dataK, aes(x=Spectral_Centroid.min)) + 
+  geom_histogram(binwidth=0.1, fill="steelblue") + 
+  ggtitle("Verteilung von Spectral_Centroid.min")
+
+ggplot(train_dataK, aes(x=LEI.STP, y=mfcc6_mean)) + 
+  geom_boxplot() + 
+  ggtitle("Boxplot von Zero_Crossing_Rate.min für jede Klasse von LEI.STP")
+
+
+cor_matrix <- cor(select(train_data_opt, -LEI.STP))
+corrplot(cor_matrix, method="color")
+
+# Paarweise Korrelationen - um Beziehungen zwischen Merkmalen zu erkennen
+cor_matrix <- cor(train_data_opt[, -which(names(train_data_opt) == "LEI.STP")])
+heatmap(cor_matrix)
+
+# Weitere Visualisierungen können erstellt werden, z.B. Histogramme, Boxplots usw.
+# um die Verteilung und Beziehungen der Merkmale zu sehen.
+
+
+
+
+
+
+# Oversampling
+install.packages("smotefamily")
+library(smotefamily)
+
+
+
+
+library(smotefamily)
+
+# Daten für SMOTE vorbereiten
+X_train <- train_data_opt[, !names(train_data_opt) %in% "LEI.STP"]
+Y_train <- train_data_opt$LEI.STP
+
+# SMOTE ausführen
+synthetic_data <- SMOTE(X = X_train, target = Y_train, K = 5, dup_size = 100)
+
+# Extrahieren Sie die synthetischen Daten aus synthetic_data
+X_synthetic <- synthetic_data$syn_data[, -ncol(synthetic_data$syn_data)] # Alle Spalten außer "class"
+Y_synthetic <- synthetic_data$syn_data$class
+
+X <- train_data_opt[, !(names(train_data_opt) %in% "LEI.STP")]  # Alle Spalten außer "LEI.STP"
+Y <- train_data_opt$LEI.STP  # Nur die Spalte "LEI.STP"
+
+
+
+# Kombinieren Sie die ursprünglichen und synthetischen Daten
+X_combined <- rbind(X, X_synthetic)
+Y_combined <- c(Y, Y_synthetic)
+
+
+
+length(Y)
+
+
+
+#Prüfung auf Overfitting
+
+library(caret)
+
+set.seed(123) # Für Reproduzierbarkeit
+
+splitIndex_combined <- createDataPartition(Y_combined, p = 0.8, list = FALSE)
+
+syn_train_data <- data.frame(X_combined[splitIndex, ], Y = Y_combined[splitIndex])
+validate_data <- data.frame(X_combined[-splitIndex, ], Y = Y_combined[-splitIndex])
+
+
+#Modelltraining
+modell_mlr <- multinom(Y ~ ., data = syn_train_data)
+
+
+# Vorhersagen auf den Validierungsdaten
+predictions_mlr <- predict(modell_mlr, newdata = validate_data)
+
+# Erstellen Sie die Konfusionsmatrix
+cm_syn <- table(predictions_mlr, validate_data$Y)
+print(cm_syn)
+
+library(caret)
+
+cm_syn2 <- confusionMatrix(predictions_mlr, validate_data$Y)
+print(cm_syn2)
+
+
+
+
+validate_data$Y <- as.factor(validate_data$Y)
+
+barplot(table(train_data_opt$LEI.STP), main="Verteilung der Klassen in den Originaldaten", col="lightblue", ylab="Anzahl")
+
+library(corrplot)
+
+cor_matrix <- cor(syn_train_data[, names(syn_train_data) != "Y"]) # Exklusive der Zielvariable
+corrplot(cor_matrix, method = "circle")
+
+heatmap(cor_matrix, main="Paarweise Korrelation", col=topo.colors(12), scale="row")
+
+print(unique(predictions_factor))
+print(unique(validate_Y_factor))
+
+
+library(ggplot2)
+library(reshape2)
+
+# 1. Koeffizienten aus Ihrem Modell extrahieren
+coefs <- as.data.frame(coef(modell_mlr))
+coefs$feature <- rownames(coefs)
+
+# 2. Dataframe für die ggplot2-Visualisierung vorbereiten
+coefs_melted <- melt(coefs, id.vars="feature")
+
+# 3. Den Plot erstellen
+ggplot(coefs_melted, aes(x=feature, y=value, fill=variable)) + 
+  geom_bar(stat="identity", position="dodge") +
+  coord_flip() +
+  labs(y="Coefficient Value", x="", fill="Class") +
+  theme_light() +
+  theme(legend.position="bottom")
+
+
+
+
+library(ggplot2)
+
+# Koeffizienten für eine bestimmte Klasse, z.B. die erste Klasse
+coefficients_class3 <- coef_matrix[2,]
+
+# Datenrahmen erstellen
+df_coef <- data.frame(
+  Variable = names(coefficients_class3),
+  Coefficient = coefficients_class3
+)
+
+# Plot
+ggplot(df_coef, aes(x = reorder(Variable, Coefficient), y = Coefficient)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  ggtitle("Koeffizienten für LEI") +
+  xlab("Variable") +
+  ylab("Koeffizientenwert")
+
+
+# Koeffizientenmatrix aus dem multinom-Modell
+coef_matrix <- coef(modell_mlr)
+
+# Liste, um Dataframes der Koeffizienten für jede Klasse zu speichern
+coefs_list <- list()
+
+# Koeffizienten für jede Klasse extrahieren und in der Liste speichern
+for (i in 1:nrow(coef_matrix)) {
+  class_label <- rownames(coef_matrix)[i]
+  coefs_list[[class_label]] <- data.frame(
+    Variable = colnames(coef_matrix),
+    Coefficient = coef_matrix[i, ]
+  )
+}
+
+# Die Koeffizienten für die erste nicht-Basis-Klasse anzeigen
+print(coefs_list[[2]])
+
+
+
+validate_data <- data.frame(X[-splitIndex,], Y = Y[-splitIndex])
+
+
+#glmnet
+
+library(glmnet)
+
+# Daten in Matrix umwandeln
+X_matrix <- as.matrix(X_combined)
+
+# Das glmnet Modell
+set.seed(123) # Für Reproduzierbarkeit
+cv_fit <- cv.glmnet(X_matrix, Y_combined, family="multinomial", type.multinomial="grouped")
+
+# Das beste Modell aufgrund des kleinsten Fehlers verwenden
+best_lambda <- cv_fit$lambda.min
+final_model <- glmnet(X_matrix, Y_combined, family="multinomial", type.multinomial="grouped", lambda=best_lambda)
+
+# Vorhersagen auf Validierungsdaten
+validate_matrix <- as.matrix(validate_data[, -1]) # Dies sollte bereits geteilt und vorbereitet worden sein
+predicted_probs <- predict(final_model, s=best_lambda, newx=validate_matrix, type="response")
+
+# Da die Vorhersagen als Wahrscheinlichkeiten zurückgegeben werden, wählen Sie die Klasse mit der höchsten Wahrscheinlichkeit
+predicted_classes <- colnames(predicted_probs)[apply(predicted_probs, 1, which.max)]
+
+# Verwenden Sie nun die `confusionMatrix` Funktion, um die Vorhersagen zu bewerten:
+confusionMatrix(predicted_classes, validate_data$Y)
+
+
+validate_matrix <- as.matrix(sapply(validate_data, as.numeric))
+str(validate_matrix)
+
